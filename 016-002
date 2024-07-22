@@ -173,14 +173,14 @@ EasyBNO055_ESP bno;
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
 
-  //bno.start(); //starts up BNO IMU // without one hooked up this freezes the code
+  // bno.start(); //starts up BNO IMU // without one hooked up this freezes the code
   Wire.begin();
   Serial.begin(115200);
   Serial2.begin(38400, SERIAL_8N1, 13, 14);  // Rx = 13, Tx = 14 will work for ESP32
   Serial.println("serial setup");
   delay(1000);
   ourGPIO.begin();
-  bno.start();
+
 
 #ifdef ESP32
 
@@ -249,7 +249,7 @@ void setup() {
 void loop() {
   // Serial.println("..................................LOOP.......................................");
 
-  //Serial.println(bno.orientationZ);
+  Serial.println(bno.orientationZ);
   GetLocalReadings();  //get UWB readings, for all modes
 
   if (mode != mode_All_STOP) {
@@ -667,9 +667,9 @@ void OLED_display() {
 }
 
 void Output() {
-  Serial.println(String("LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX);
+  // Serial.println(String("LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX);
   rightSideServo.write(RHMIX);  // tell servo to go to position in variable 'pos'
-  leftSideServo.write(LHMIX);   //change directions since it is facing the other way
+  leftSideServo.write(LHMIX);   
 
   if (SprayOutput) {  //This is where the spray relay gets turned on or off, multiple modes affect this
     ourGPIO.digitalWrite(RelayOutPin, HIGH);
