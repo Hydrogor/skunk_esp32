@@ -341,17 +341,19 @@ void loop() {
       errorAnchor2 = (data[5] - anchorDistance2) * (data[5] - anchorDistance2);  //finding error squared between recorded anchor and current anchor
       errorTotal1 = errorTotal1 + errorAnchor1;
       errorTotal2 = errorTotal2 + errorAnchor2;
-      Serial.print(String("errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
-      Serial.print(String(" : time = ") + data[0] + String("recDirection") + data[6] + String(" : CurrentDirection = ") + bno.orientationZ + String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
 
+      Serial.print(String("errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
+      Serial.print(String(" : time = ") + data[0] + String(" : recDirection = ") + ThetaPath + String(" : CurrentDirection = ") + bno.orientationZ);
+      // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
+      
       LHMIX = data[1];  // setting LH drive to what came in from file
       RHMIX = data[2];  // setting RH drive to what came in from file
 
       // Error correction based on ThetaPath and anchor errors
       float headingError = bno.orientationZ - ThetaPath;  //with imu
       Serial.print(String(" : headingErrorPre = ") + headingError);
-      if (headingError > 0) headingError -= 10;
-      if (headingError < 0) headingError += 10;
+      if (headingError > 0) headingError -= 5;
+      if (headingError < 0) headingError += 5;
 
       // Combine heading error and anchor errors for correction
       float totalError = headingError + (errorAnchor1 + errorAnchor2) * anchorErrorConstant;  // anchorerrorconstant = 0.01
@@ -515,11 +517,11 @@ void recordPath(fs::FS& fil) {
   skunkLog.print(";");
   skunkLog.print(anchorDistance2);  //data[5]
   skunkLog.print(";");
-  skunkLog.println(bno.orientationZ);  //data[6]
+  skunkLog.print(bno.orientationZ);  //data[6]
 
   Serial.println(String("time = ") + tim + String(" : LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX + String(" : orientationZ = ") + bno.orientationZ);
 
-  //skunkLog.print(";"); //end with a ;
+  skunkLog.println(";"); //end with a ;
   skunkLog.close();
 }
 
