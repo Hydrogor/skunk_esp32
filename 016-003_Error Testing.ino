@@ -341,8 +341,8 @@ void loop() {
       errorAnchor2 = (data[5] - anchorDistance2) * (data[5] - anchorDistance2);  //finding error squared between recorded anchor and current anchor
       errorTotal1 = errorTotal1 + errorAnchor1;
       errorTotal2 = errorTotal2 + errorAnchor2;
-
-      Serial.print(String("time = ") + data[0] + String(" : orientationZ = ") + bno.orientationZ + String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
+      Serial.print(String("errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
+      Serial.print(String(" : time = ") + data[0] + String("recDirection") + data[6] + String(" : CurrentDirection = ") + bno.orientationZ + String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
 
       LHMIX = data[1];  // setting LH drive to what came in from file
       RHMIX = data[2];  // setting RH drive to what came in from file
@@ -356,12 +356,12 @@ void loop() {
       // Combine heading error and anchor errors for correction
       float totalError = headingError + (errorAnchor1 + errorAnchor2) * anchorErrorConstant;  // anchorerrorconstant = 0.01
 
-      Serial.print(String(" : totalError = ") + totalError + String(" : headingErrorPOST = ") + headingError + String(" : errorAnchorTOT = ") + (errorAnchor1 + errorAnchor2));
+      Serial.println(String(" : totalError = ") + totalError + String(" : headingErrorPOST = ") + headingError + String(" : errorAnchorTOT = ") + (errorAnchor1 + errorAnchor2));
 
       // Apply correction to drive towards ThetaPath and reduce anchor errors
       LHMIX -= totalError * headingConstant;  // headingConstant = 0.1
       RHMIX += totalError * headingConstant;
-      Serial.println(String(" : LHMIXwError = ") + LHMIX + String(" : RHMIXwError = ") + RHMIX);
+      // Serial.println(String(" : LHMIXwError = ") + LHMIX + String(" : RHMIXwError = ") + RHMIX);
     }
     if (EndOfFile) {
       Serial.print("end of file");
