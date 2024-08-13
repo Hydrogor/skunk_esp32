@@ -45,7 +45,6 @@
 
 #define correctionFactor 10  // correction factor for error mix in playback
 #define anchorErrorConstant 0.01
-#define headingConstant 0.1
 #define DeadBandHigh 1520
 #define DeadBandLow 1480  // SETTING DEAD BAND LIMITS FOR RADIO NOISE //
 
@@ -161,6 +160,7 @@ bool recordFirstTime = false;
 float data[7];  //fitness is the root mean squared of how well the robot followed the path.
 float errorTotal1 = 0, errorTotal2 = 0;
 float errorAnchor1 = 0, errorAnchor2 = 0;
+float headingConstant;
 unsigned long currentMillis = 0;
 unsigned long previousMillis = 0;
 int LEDTimer = 1000;
@@ -175,7 +175,7 @@ void setup() {
   bno.start();  //starts up BNO IMU // without one hooked up this freezes the code
   Wire.begin();
   Serial.begin(115200);
-  Serial2.begin(38400, SERIAL_8N1, 13, 14);  // Rx = 13, Tx = 14 will work for ESP32
+  Serial1.begin(38400, SERIAL_8N1, 13, 14);  // Rx = 13, Tx = 14 comm. to dw1000 anchor boards
   Serial.println("serial setup");
   delay(1000);
   ourGPIO.begin();
@@ -356,6 +356,9 @@ void loop() {
 
       // Combine heading error and anchor errors for correction
       float totalError = headingError + (errorAnchor1 + errorAnchor2) * anchorErrorConstant;  // anchorerrorconstant = 0.01
+
+      if (totalError < 10) headingConstant = .1; // conservative correction
+      if (totalError > 10) headingConstant = .1; // aggressive correction
 
       Serial.print(String(" : totalError = ") + totalError + String(" : headingErrorPOST = ") + headingError + String(" : errorAnchorTOT = ") + (errorAnchor1 + errorAnchor2));
 
