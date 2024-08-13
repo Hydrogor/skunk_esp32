@@ -226,11 +226,11 @@ void setup() {
   ////////////////////////// INTERIOR HARDWARE TIMER ////////////////////////////////////////////////
   startTime = millis();
   //timer = timerBegin(0, 80, true);              // timer 0, prescalar: 80, UP counting
-  timer = timerBegin(100000);  // timer 0, prescalar: 80, UP counting
+  timer = timerBegin(1000000);  // timer 0, prescalar: 80, UP counting
   //timerAttachInterrupt(timer, &onTimer, true);  // Attach interrupt
   timerAttachInterrupt(timer, &onTimer);  // Attach interrupt
   //timerAlarmWrite(timer, 100000, true);         // Match value= 1000000 for 1 sec. delay.
-  timerAlarm(timer, 100000, true, 0);  // Match value= 1000000 for 1 sec. delay.
+  timerAlarm(timer, 250000, true, 0);  // Match value= 1000000 for 1 sec. delay.
   //timerAlarmEnable(timer);                // Enable Timer with interrupt (Alarm Enable)
   ////////////////////////// INTERIOR HARDWARE TIMER ////////////////////////////////////////////////
 
@@ -343,7 +343,8 @@ void loop() {
       RHMIX = data[2];                                                           // setting RH drive to what came in from file
       float CurrentHeading = bno.orientationZ;
 
-      Serial.print(String("time = ") + data[0] + String(" : orientationZ = ") + CurrentHeading);
+      Serial.print(String("time = ") + data[0]);
+      Serial.print(String(" : Current_ORIEN = ") + CurrentHeading + String(" : REC_Orien = ") + data[6]);
       // Serial.print(String(" : errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
       // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
 
@@ -352,20 +353,36 @@ void loop() {
       Serial.print(String(" : HeadingErrPRE = ") + headingError);
       
 //////////////  NEED TO TUNE K_HEADING  //////////////
-      if (abs(headingError) < 10) K_heading = .01; // conservative correction
-      if (abs(headingError) > 10) K_heading = .05; // aggressive correction
-      
+      if (abs(headingError) < 10) K_heading = .09; // conservative correction
+      if (abs(headingError) > 10) {
+        K_heading = .25; // aggressive correction
+        if ((LHMIX > 105) && (RHMIX > 105)){
+          LHMIX -= 10;
+          RHMIX -= 10;
+        }
+      }
       // Combine heading error and anchor errors for correction
-      float totalError = headingError * K_heading + (errorAnchor1 + errorAnchor2) * K_location;  // anchorerrorconstant = 0.01
-      Serial.print(String(" : TotalErr = ") + totalError + String(" : HeadingErrPOST = ") + headingError + String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2));
-      
-      if (abs(totalError) < 10) K_total = .1; // conservative correction
-      if (abs(totalError) > 10) K_total = .5; // aggressive correction
+      float totalError = headingError * K_heading;// + (errorAnchor1 + errorAnchor2) * K_location;  // anchorerrorconstant = 0.01
+      Serial.print(String(" : HeadingErrPOST = ") + (headingError * K_heading) + String(" : TotalErr = ") + totalError);
+      Serial.print(String(" : K value = ") + K_heading);
+      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2));
+
+      if (abs(totalError) < 10) K_total = .09; // conservative correction
+      if (abs(totalError) > 10) K_total = .25; // aggressive correction
 
 //////////////  NEED TO TUNE K_TOTAL  //////////////
       // Apply correction to drive towards ThetaPath and reduce anchor errors
-      LHMIX -= totalError * K_total;  // K_total = 0.1
-      RHMIX += totalError * K_total;
+
+      if (headingError < -5){
+        LHMIX -= totalError;
+      }
+      if (headingError > 5){
+        RHMIX += totalError;
+      }
+      if (-5 < headingError < 5){
+        LHMIX -= totalError;// * K_total;  // K_total = 0.1
+        RHMIX += totalError;// * K_total;
+      }
       Serial.print(String(" : LHMIXwErr = ") + LHMIX + String(" : RHMIXwErr = ") + RHMIX);
       Serial.println();
     }
