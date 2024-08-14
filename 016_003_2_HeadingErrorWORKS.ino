@@ -16,6 +16,7 @@
 // 6-07-24 014-005 implementing error into playback drive
 // 6-13-24 015-001 updated commands from updated ESP32
 // 7-12-24 016-001 went back to rc pwm motor controllers
+// 8-13-24 016-003_2 orientation error works 
 #define ESP32
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
