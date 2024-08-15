@@ -324,7 +324,7 @@ void loop() {
 
 
       
-      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2) + String(" : K location = ") + K_heading);
+      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2) + String(" : K location = ") + K_location);
       // Combine heading error and anchor errors for correction
       float totalError = headingError * K_heading;// + (errorAnchor1 + errorAnchor2) * K_location;  // anchorerrorconstant = 0.01
       Serial.print(String(" : TotalErr = ") + totalError);
