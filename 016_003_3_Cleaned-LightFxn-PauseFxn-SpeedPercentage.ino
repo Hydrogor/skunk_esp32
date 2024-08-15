@@ -307,11 +307,9 @@ void loop() {
       // Serial.print(String(" : errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
       // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
 
-      // Error correction based on ThetaPath and anchor errors
+      // Error correction based on ThetaPath
       float headingError = CurrentHeading - ThetaPath;  //with imu
-      Serial.print(String(" : HeadingErrPRE = ") + headingError);
-      
-      //////////////  NEED TO TUNE K_HEADING  //////////////
+      //Serial.print(String(" : HeadingErrPRE = ") + headingError);
       if (abs(headingError) < 10) K_heading = .09; // conservative correction
       if (abs(headingError) > 10) {                // aggressive correction
         K_heading = .25;
@@ -320,21 +318,18 @@ void loop() {
           RHMIX -= 10;
         }
       }
+      //Serial.print(String(" : HeadingErrPOST = ") + (headingError * K_heading) + String(" : K heading = ") + K_heading);
+      // Error correction based on anchor errors
 
-      //////////////  NEED TO TUNE K_LOCATION  //////////////
 
 
+      
+      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2) + String(" : K location = ") + K_heading);
       // Combine heading error and anchor errors for correction
       float totalError = headingError * K_heading;// + (errorAnchor1 + errorAnchor2) * K_location;  // anchorerrorconstant = 0.01
-      Serial.print(String(" : HeadingErrPOST = ") + (headingError * K_heading) + String(" : TotalErr = ") + totalError);
-      Serial.print(String(" : K value = ") + K_heading);
-      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2));
-
-
-      //////////////  NEED TO TUNE K_TOTAL  //////////////
-
-      if (abs(totalError) < 10) K_total = .09; // conservative correction
-      if (abs(totalError) > 10) K_total = .25; // aggressive correction
+      Serial.print(String(" : TotalErr = ") + totalError);
+      //if (abs(totalError) < 10) K_total = .09; // conservative correction
+      //if (abs(totalError) > 10) K_total = .25; // aggressive correction
 
       // Apply correction to drive towards ThetaPath and reduce anchor errors
       if (headingError < -5){
@@ -344,11 +339,11 @@ void loop() {
         RHMIX += totalError;
       }
       if (headingError > -5 && headingError < 5){
-        LHMIX -= totalError;// * K_total;  // K_total = 0.1
+        LHMIX -= totalError;// * K_total;
         RHMIX += totalError;// * K_total;
       }
 
-      Serial.print(String(" : LHMIXwErr = ") + LHMIX + String(" : RHMIXwErr = ") + RHMIX);
+      //Serial.print(String(" : LHMIXwErr = ") + LHMIX + String(" : RHMIXwErr = ") + RHMIX);
       Serial.println();
     }
     if (EndOfFile) {
