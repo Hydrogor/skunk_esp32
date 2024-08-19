@@ -35,7 +35,7 @@
 //#define DEBUG_RC_IN
 
 // #define MaxSpeed 65           // Max Speed in Percentage 
-float MaxSpeed = 35;
+float MaxSpeed = 25;
 
 #define Min_Steering 0        // SETTING MIN STEERING LIMITS // left
 #define Mid_Steering 90       // SETTING MID STEERING LIMITS // stopped
@@ -234,11 +234,7 @@ void setup() {
   //timerAlarmEnable(timer);                // Enable Timer with interrupt (Alarm Enable)
   ////////////////////////// INTERIOR HARDWARE TIMER ////////////////////////////////////////////////
 
-  ourGPIO.digitalWrite(WhitePin, LOW);  //all LEDs off
-  ourGPIO.digitalWrite(BluePin, LOW);
-  ourGPIO.digitalWrite(GreenPin, HIGH);
-  ourGPIO.digitalWrite(OrangePin, LOW);
-  ourGPIO.digitalWrite(RedPin, LOW);  //all LEDs off
+  Lights(0,0,0,0,0,0); //all lights off
 
   SpeedCap = (MaxSpeed / 100); //0-100 to 0-1
   Sc_MaxSteer = ((Max_Steering - Mid_Steering) * SpeedCap) + Mid_Steering; //scaled max n mins
@@ -326,27 +322,22 @@ void loop() {
       //////////////  NEED TO TUNE K_HEADING  //////////////
       if (abs(headingError) < 10) K_heading = .09; // conservative correction
       if (abs(headingError) > 10) {                // aggressive correction
-        K_heading = .25;
+        K_heading = .3;
         if ((LHMIX > 105) && (RHMIX > 105)){
           LHMIX -= 10;
           RHMIX -= 10;
         }
       }
+      Serial.print(String(" : HeadingErrPOST = ") + (headingError * K_heading) + String(" : K heading = ") + K_heading);
+      // Error correction based on anchor errors
 
-      //////////////  NEED TO TUNE K_LOCATION  //////////////
 
-
+      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2) + String(" : K location = ") + K_location);
       // Combine heading error and anchor errors for correction
       float totalError = headingError * K_heading;// + (errorAnchor1 + errorAnchor2) * K_location;  // anchorerrorconstant = 0.01
-      Serial.print(String(" : HeadingErrPOST = ") + (headingError * K_heading) + String(" : TotalErr = ") + totalError);
-      Serial.print(String(" : K value = ") + K_heading);
-      //Serial.print(String(" : AnchorErr = ") + (errorAnchor1 + errorAnchor2));
-
-
-      //////////////  NEED TO TUNE K_TOTAL  //////////////
-
-      if (abs(totalError) < 10) K_total = .09; // conservative correction
-      if (abs(totalError) > 10) K_total = .25; // aggressive correction
+      Serial.print(String(" : TotalErr = ") + totalError);
+      //if (abs(totalError) < 10) K_total = .09; // conservative correction
+      //if (abs(totalError) > 10) K_total = .25; // aggressive correction
 
       // Apply correction to drive towards ThetaPath and reduce anchor errors
       if (headingError < -5){
@@ -356,11 +347,11 @@ void loop() {
         RHMIX += totalError;
       }
       if (headingError > -5 && headingError < 5){
-        LHMIX -= totalError;// * K_total;  // K_total = 0.1
+        LHMIX -= totalError;// * K_total;
         RHMIX += totalError;// * K_total;
       }
 
-      Serial.print(String(" : LHMIXwErr = ") + LHMIX + String(" : RHMIXwErr = ") + RHMIX);
+      //Serial.print(String(" : LHMIXwErr = ") + LHMIX + String(" : RHMIXwErr = ") + RHMIX);
       Serial.println();
     }
     if (EndOfFile) {
