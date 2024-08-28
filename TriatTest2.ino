@@ -476,7 +476,7 @@ float calculateHeadingToTarget(int x, int y) {
   return atan2(deltaY, deltaX) * (180.0 / PI);  // Convert to degrees
 }
 
-void moveRobotTo(float x,float y,float headingError) {
+void moveRobotTo(float dx,float dy,float headingError) {
   //impement playback max speed
   //set rhmix and lhmix to max speed
   //if headingerror is negative, less lhmix; if headingerror is positive, less rhmix; only if dx and dy are bigger than 1
