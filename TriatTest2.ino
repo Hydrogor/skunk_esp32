@@ -146,7 +146,7 @@ float posTol = 1.0, headTol = 1.0;
 bool newData = false, mode_Flag = false;
 int incomingByte = 0;  // for incoming serial data
 float LHMIX, RHMIX;
-float Sc_MaxSteer, Sc_MinSteer, Sc_MaxThrust, Sc_MinThrust, SpeedCap; //scaled max n mins
+float Sc_MaxSteer, Sc_MinSteer, Sc_MaxThrust, Sc_MinThrust, Max_PBSpeed, Min_PBSpeed, SpeedCap; //scaled max n mins
 int mode = 1;  //mode is record or playback
 float Direction, Thrust;
 volatile long SteeringDur = 1500, ThrustDur = 1500;
@@ -470,7 +470,7 @@ float calculateHeadingToTarget(int x, int y) {
   return atan2(deltaY, deltaX) * (180.0 / PI);  // Convert to degrees
 }
 
-void moveRobotTo(float x,float y,float headingError) {
+void moveRobotTo(float dx,float dy,float headingError) {
   LHMIX = Max_PBSpeed; //setting max playback speed
   RHMIX = Max_PBSpeed; //setting max playback speed
 
