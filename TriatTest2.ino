@@ -159,7 +159,6 @@ int startTime;
 int startTime_Playback;
 long currentFilePosition = 0;
 long RTime, dt;
-int HeadingCurrent = 0;
 int ultraSonic[] = { 0x22, 0x23 };  //used to check if ultra was connected or not
 bool DangerFlag = false;
 bool RelayFlag = false;
@@ -258,7 +257,6 @@ void setup() {
   SpeedCap = (MaxPBSpeed / 100); //0-100 to 0-1
   Max_PBSpeed = ((Max_Steering - Mid_Steering) * SpeedCap) + Mid_Steering; //scaled max n mins
   Min_PBSpeed = Mid_Steering - (Mid_Steering * SpeedCap); 
-  Serial.print(String(" : Max_PBSpeed = ") + Max_PBSpeed + String(" : Min_PBSpeed = ") + Min_PBSpeed);
 
   delay(500);
   Lights(0,0,0,0,0,0); //all lights off
@@ -274,7 +272,6 @@ void loop() {
   if (mode == mode_RC) {  //mode RC
     Lights(0,0,1,0,0,0); // green on
     Spray();
-    currentFilePosition = 0;  //resetting the file to the start
     EndOfFile = false;
     MIXRC();  //get RC PWM, for RC and REC only
     SprayDuration = RelayDur;
@@ -326,6 +323,7 @@ void loop() {
 
       prevXpos = RecX;
       prevYpos = RecY;
+      MadeitFlag = false;
 
       // Serial.print(String(" : errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
       // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
@@ -572,7 +570,7 @@ void recordPath(fs::FS& fil) {
   skunkLog.close();
 }
 
-void readFile(fs::FS& fs, const char* path) { //where can i add something to wait to move to next line
+void readFile(fs::FS& fs, const char* path) {
   //Serial.printf("Reading file: %s\n", path);
   File file = fs.open(path);
   if (!file) {
@@ -598,11 +596,13 @@ void readFile(fs::FS& fs, const char* path) { //where can i add something to wai
       i++;
       memset(value, '\0', sizeof(value));  //clear out array
 
-    } else if (newData == '\n' && MadeitFlag) {          //done with line of file
+    } else if (newData == '\n') {          //done with line of file
+      while (!MadeitFlag){}
+      //MadeitFlag = false; //not sure if setting false here or in playback is right 
       i = 0;
       lineDone = true;
       currentFilePosition = file.position();
-
+      
     } else {  //add new character to value array
       int length = strlen(value);
       value[length] = newData;
