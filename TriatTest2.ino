@@ -34,7 +34,8 @@
 //#define DEBUG_RC_IN
 
 // #define MaxSpeed 65           // Max Speed in Percentage 
-float MaxSpeed = 35; // out of 0-100
+float MaxSpeed = 35; // Max RC Speed (out of 0-100)
+float MaxPBSpeed = 30; // Max Playback Speed(out of 0-100)
 
 #define Min_Steering 0        // SETTING MIN STEERING LIMITS // left
 #define Mid_Steering 90       // SETTING MID STEERING LIMITS // stopped
@@ -141,12 +142,13 @@ float xAnchors[Number_of_Anchors] = {0, 2.5, 0};  // X coordinates of anchors
 float yAnchors[Number_of_Anchors] = {0, 8.5, 1};  // Y coordinates of anchors
 float zAnchors[Number_of_Anchors] = {1.5, 1.5, 1};  // Z coordinates of anchors
 double xPos, yPos, RecX, RecY;
+float posTol = 1.0, headTol = 1.0;
 bool newData = false, mode_Flag = false;
 int incomingByte = 0;  // for incoming serial data
 float LHMIX, RHMIX;
 float Sc_MaxSteer, Sc_MinSteer, Sc_MaxThrust, Sc_MinThrust, SpeedCap; //scaled max n mins
 int mode = 1;  //mode is record or playback
-float Direction, Thrust, ThetaPath;
+float Direction, Thrust;
 volatile long SteeringDur = 1500, ThrustDur = 1500;
 long RelayDur = 2000;
 long SprayDuration;
@@ -252,6 +254,12 @@ void setup() {
 
   Sc_MaxThrust = ((Max_Thrust - Mid_Thrust) * SpeedCap) + Mid_Thrust; //scaled max n mins
   Sc_MinThrust = Mid_Thrust - (Mid_Thrust * SpeedCap);
+  
+  SpeedCap = (MaxPBSpeed / 100); //0-100 to 0-1
+  Max_PBSpeed = ((Max_Steering - Mid_Steering) * SpeedCap) + Mid_Steering; //scaled max n mins
+  Min_PBSpeed = Mid_Steering - (Mid_Steering * SpeedCap); 
+  Serial.print(String(" : Max_PBSpeed = ") + Max_PBSpeed + String(" : Min_PBSpeed = ") + Min_PBSpeed);
+
   delay(500);
   Lights(0,0,0,0,0,0); //all lights off
   delay(500);
@@ -299,42 +307,28 @@ void loop() {
 
   if (mode == mode_PLAYBACK) {  //mode playback
     Lights(1,0,0,0,0,1); //white pulse
-    double previousError1 = 0, previousError2 = 0;
     //localEnvironmentCheck(); //check local sensors
 
     calculatePosition(); // get current position
     double prevXpos = xPos; // set as previous x position
     double prevYpos = yPos; // set as previous y position
 
-    startTime = millis();
-    dt = millis() - startTime_Playback;
-
     if (mode != mode_All_STOP) {
       readFile(SD, "/log.txt");                                                  // checks times and read next file line to get new instructions
-      Serial.print(String("time = ") + data[0]);
-      LHMIX = data[1];                                                           // setting LH drive to what came in from file
-      RHMIX = data[2];                                                           // setting RH drive to what came in from file
+      Serial.print(String("time stamp = ") + data[0]);
       RecX = data[3]; //store x position to head to
       RecY = data[4]; //store y position to head to
       SprayOutput = data[5];                                                     // setting spray trigger to what came in from playback file
-      errorAnchor1 = (data[6] - anchorDistance1) * (data[6] - anchorDistance1);  // finding error squared between recorded anchor and current anchor
-      errorAnchor2 = (data[7] - anchorDistance2) * (data[7] - anchorDistance2);  // finding error squared between recorded anchor and current anchor
-      errorAnchor3 = (data[8] - anchorDistance3) * (data[8] - anchorDistance3);  // finding error squared between recorded anchor and current anchor
-      errorTotal1 = errorTotal1 + errorAnchor1;
-      errorTotal2 = errorTotal2 + errorAnchor2;
-      errorTotal3 = errorTotal3 + errorAnchor3;
-      ThetaPath = data[9];                                                       // setting the current heading to thetapath
       Serial.print(String(" : WhereIam (x,y) = (") + prevXpos + String(",") + prevYpos + String(")"));
       Serial.print(String(" : WhereIgo (x,y) = (") + RecX + String(",") + RecY + String(")"));
       bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
-      Serial.print(" after bresenham ");
+      Serial.print(" !after bresenham! ");
 
       prevXpos = RecX;
       prevYpos = RecY;
 
       // Serial.print(String(" : errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
       // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
-      Serial.print(String(" endoffile? =  ") + EndOfFile);
       Serial.println();
     }
     if (EndOfFile) {
@@ -447,22 +441,22 @@ void bresenhamLine(float x1, float y1, float x2, float y2) {
   int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
   Serial.print(String(" : dx = ") + dx + String(" : dy = ") + dy);
   int err = dx + dy, e2;  // error value e_xy
-  //implement buffer, if dx and dy are very small, no need to move, except maybe orient
 
   if(MadeitFlag == false && mode == mode_PLAYBACK && mode != mode_All_STOP) {
     CurrentHeading = bno.orientationZ;
     float targetHeading = calculateHeadingToTarget(x2, y2);  // Calculate desired heading to the target point
-    float headingError = targetHeading - CurrentHeading;   // Current heading error    // Move the robot to the next point (x2, y2)
+    float headingError = targetHeading - CurrentHeading;   // Current heading error    
     Serial.print(String(" : targetHeading = ") + targetHeading + String(" : CurrentHeading = ") + CurrentHeading + String(" : headingError = ") + headingError);
 
-    moveRobotTo(dx, dy, headingError);
-    if (x2 == x1 && y2 == y1 && abs(headingError) < 5) MadeitFlag = true;// will need to add buffer and change '5 value' when testing
-    
+    moveRobotTo(dx, dy, headingError);  // Move the robot to the next point (x2, y2)
+    if (abs(dx) <= posTol && abs(dy) <= posTol && abs(headingError) < headTol) {
+      MadeitFlag = true;
+      Serial.print(" !made it! ");
+    }
     e2 = 2 * err;
     if (e2 >= dy) { err += dy; x2 += sx; }
     if (e2 <= dx) { err += dx; y2 += sy; }
   }
-  Serial.print(" made it ");
 }
 
 float calculateHeadingToTarget(int x, int y) {
@@ -472,21 +466,33 @@ float calculateHeadingToTarget(int x, int y) {
   double currentY = yPos;
   float deltaX = x - currentX;
   float deltaY = y - currentY;
-  Serial.print(String(" : deltaX = ") + deltaX + String(" : deltaY = ") + deltaY);
+  //Serial.print(String(" : deltaX = ") + deltaX + String(" : deltaY = ") + deltaY);
   return atan2(deltaY, deltaX) * (180.0 / PI);  // Convert to degrees
 }
 
-void moveRobotTo(float dx,float dy,float headingError) {
-  //impement playback max speed
-  //set rhmix and lhmix to max speed
-  //if headingerror is negative, less lhmix; if headingerror is positive, less rhmix; only if dx and dy are bigger than 1
-  //if dx and dy are less than 1 but headingerror is negative, lhmix max reverse, rhmix max forward; if headingerror is positive, lhmix max forward, rhmix max reverse
-  if (dx < 1 && dy < 1){
-    //same position, check orientation
-    //implement formula that changes change of lhmix and rhmix by how large orientation is
-  }
-  
+void moveRobotTo(float x,float y,float headingError) {
+  LHMIX = Max_PBSpeed; //setting max playback speed
+  RHMIX = Max_PBSpeed; //setting max playback speed
 
+  if (dx > 1 || dy > 1){  //while moving, adjust heading
+    if (headingError < 0){
+      LHMIX = LHMIX - (headingError * K_heading); //turn left a bit
+    }
+    else if (headingError > 0){
+      RHMIX = RHMIX - (headingError * K_heading); //turn right a bit
+    }
+  }
+
+  else if (dx < 1 || dy < 1){ //at position, just needs to rotate
+    if (headingError < 0){ //rotate left
+      LHMIX = Min_PBSpeed;
+      RHMIX = Max_PBSpeed;
+    }
+    else if (headingError > 0){ //rotate right
+      LHMIX = Max_PBSpeed;
+      RHMIX = Min_PBSpeed;
+    }
+  }
   Serial.print(String(" : LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX);
 }
 
