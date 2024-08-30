@@ -43,15 +43,17 @@ float MaxPBSpeed = 30; // Max Playback Speed(out of 0-100)
 #define Min_Thrust 0          // SETTING MIN THRUST LIMITS // reverse
 #define Mid_Thrust 90         // SETTING MID THRUST LIMITS // stopped
 #define Max_Thrust 180        // SETTING MAX THRUST LIMITS // forward
-#define ForwardThrustIn 1074   //what are these? DKF
-#define BackwardThrustIn 1952  //max and min joystick values. IAS
-#define RightDirIn 1935
-#define LeftDirIn 1057
+
+#define ForwardThrustIn 1074  // min of y joystick values
+#define BackwardThrustIn 1952 // max of y joystick values
+#define RightDirIn 1935       // min of x joystick values
+#define LeftDirIn 1057        // max of x joystick values
 
 #define mode_All_STOP 3  //enumeration of modes
 #define mode_RC 1
 #define mode_RECORD 0
 #define mode_PLAYBACK 2
+#define mode_PAUSE 4
 
 #define DANGER_DIST 0              //ultrasonic distance for danger stop
 #define CONCERN_DIST 500           //ultrasonic distance for concern
@@ -150,7 +152,7 @@ float Sc_MaxSteer, Sc_MinSteer, Sc_MaxThrust, Sc_MinThrust, Max_PBSpeed, Min_PBS
 int mode = 1;  //mode is record or playback
 float Direction, Thrust;
 volatile long SteeringDur = 1500, ThrustDur = 1500;
-long RelayDur = 2000;
+long RelayDur = 2000, SprayDur = 0, RecOrient = 0, TimeStamp = 0;
 long SprayDuration;
 long Spray_Sensitivity_Dur = 1500;
 long Steering_Sensitivity_Dur = 1500;
@@ -166,11 +168,12 @@ bool MadeitFlag = false;
 bool EndOfFile = false;
 bool SprayOutput = false;
 bool recordFirstTime = false;
+bool MoveFlag = false, RotateFlag = false;
 float data[numData];  //fitness is the root mean squared of how well the robot followed the path.
-float errorTotal1 = 0, errorTotal2 = 0, errorTotal3 = 0;
-float errorAnchor1 = 0, errorAnchor2 = 0, errorAnchor3 = 0;
+float errTot = 0, errTot1 = 0, errTot2 = 0, errTot3 = 0;
+float errAnch1 = 0, errAnch2 = 0, errAnch3 = 0;
 float K_total, K_heading, K_location = 0.1;
-float CurrentHeading = 0;
+float CurrentHeading = 0, OrientError = 0;
 unsigned long previousMillis = 0;
 int LEDTimer = 1000;
 EasyBNO055_ESP bno;
@@ -238,13 +241,9 @@ void setup() {
 
   ////////////////////////// INTERIOR HARDWARE TIMER ////////////////////////////////////////////////
   startTime = millis();
-  //timer = timerBegin(0, 80, true);              // timer 0, prescalar: 80, UP counting
-  timer = timerBegin(100000);  // timer 0, prescalar: 80, UP counting
-  //timerAttachInterrupt(timer, &onTimer, true);  // Attach interrupt
+  timer = timerBegin(100000);  // 1000000hz 
   timerAttachInterrupt(timer, &onTimer);  // Attach interrupt
-  //timerAlarmWrite(timer, 100000, true);         // Match value= 1000000 for 1 sec. delay.
-  timerAlarm(timer, 100000, true, 0);  // Match value= 1000000 for 1 sec. delay.
-  //timerAlarmEnable(timer);                // Enable Timer with interrupt (Alarm Enable)
+  timerAlarm(timer, 250000, true, 0);  // Argument2 = 1000000 for 1 sec / 250000 = .25sec [timestamp interval]
   ////////////////////////// INTERIOR HARDWARE TIMER ////////////////////////////////////////////////
 
   SpeedCap = (MaxSpeed / 100); //0-100 to 0-1
@@ -309,15 +308,28 @@ void loop() {
     calculatePosition(); // get current position
     double prevXpos = xPos; // set as previous x position
     double prevYpos = yPos; // set as previous y position
+    startTime = millis();
 
     if (mode != mode_All_STOP) {
       readFile(SD, "/log.txt");                                                  // checks times and read next file line to get new instructions
-      Serial.print(String("time stamp = ") + data[0]);
-      RecX = data[3]; //store x position to head to
-      RecY = data[4]; //store y position to head to
-      SprayOutput = data[5];                                                     // setting spray trigger to what came in from playback file
+      TimeStamp = data[0];
+      Serial.print(String("time stamp = ") + TimeStamp);
+      RecX = data[1]; //store x position to head to
+      RecY = data[2]; //store y position to head to
+      errAnch1 = (data[3] - anchorDistance1) * (data[3] - anchorDistance1);
+      errAnch2 = (data[4] - anchorDistance2) * (data[4] - anchorDistance2);
+      errAnch3 = (data[5] - anchorDistance3) * (data[5] - anchorDistance3);
+      RecOrient = data[6];
+      SprayOutput = data[7];                                                     // setting spray trigger to what came in from playback file
+      SprayDur = data[8];
+
+      errTot1 = errTot1 + errAnch1;
+      errTot2 = errTot2 + errAnch2;
+      errTot3 = errTot3 + errAnch3;
+
       Serial.print(String(" : WhereIam (x,y) = (") + prevXpos + String(",") + prevYpos + String(")"));
       Serial.print(String(" : WhereIgo (x,y) = (") + RecX + String(",") + RecY + String(")"));
+
       bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
       Serial.print(" !after bresenham! ");
 
@@ -325,12 +337,15 @@ void loop() {
       prevYpos = RecY;
       MadeitFlag = false;
 
-      // Serial.print(String(" : errAnch1 = ") + errorAnchor1 + String(" : errAnch2 = ") + errorAnchor2);
-      // Serial.print(String(" : LHMIX_Rec = ") + data[1] + String(" : RHMIX_Rec = ") + data[2]);
+      // Serial.print(String(" : errAnch1 = ") + errAnch1 + String(" : errAnch2 = ") + errAnch2);
       Serial.println();
+      if (DangerFlag) {
+      //records where it is in file
+      //then when resumed it can return to file
+      }
     }
     if (EndOfFile) {
-      Serial.println("end of file");
+      Serial.println(String("end of file : Total Error = ") + errTot + String(" : Playback Time(s) = ") + ((millis()-startTime)/1000));
       AllStop_FXN();
       currentFilePosition = 0;
     }
@@ -342,7 +357,10 @@ void loop() {
     interruptCounter--;
     portEXIT_CRITICAL(&timerMux);
     if (mode == mode_RECORD) {
-      recordPath(SD);
+      recordPath(SD, "skunkLog");
+    }
+    if (mode == mode_PLAYBACK) {
+      recordPath(SD, "skunkPBLog");
     }
     totalInterruptCounter++;  //counting total interrupt
   }
@@ -447,9 +465,17 @@ void bresenhamLine(float x1, float y1, float x2, float y2) {
     Serial.print(String(" : targetHeading = ") + targetHeading + String(" : CurrentHeading = ") + CurrentHeading + String(" : headingError = ") + headingError);
 
     moveRobotTo(dx, dy, headingError);  // Move the robot to the next point (x2, y2)
-    if (abs(dx) <= posTol && abs(dy) <= posTol && abs(headingError) < headTol) {
-      MadeitFlag = true;
-      Serial.print(" !made it! ");
+    if (abs(dx) <= posTol && abs(dy) <= posTol){
+      if (MoveFlag && abs(headingError) < headTol){
+        MadeitFlag = true;
+        MoveFlag = false;
+        Serial.println(" !made it - moved! ");
+      }
+      if (RotateFlag && abs(OrientError) < headTol){
+        MadeitFlag = true;
+        RotateFlag = false;
+        Serial.println(" !made it - rotated! ");
+      }
     }
     e2 = 2 * err;
     if (e2 >= dy) { err += dy; x2 += sx; }
@@ -473,6 +499,7 @@ void moveRobotTo(float dx,float dy,float headingError) {
   RHMIX = Max_PBSpeed; //setting max playback speed
 
   if (dx > 1 || dy > 1){  //while moving, adjust heading
+    MoveFlag = true;
     if (headingError < 0){
       LHMIX = LHMIX - (headingError * K_heading); //turn left a bit
     }
@@ -482,11 +509,14 @@ void moveRobotTo(float dx,float dy,float headingError) {
   }
 
   else if (dx < 1 || dy < 1){ //at position, just needs to rotate
-    if (headingError < 0){ //rotate left
+  RotateFlag = true;
+  CurrentHeading = bno.orientationZ;
+  OrientError = RecOrient - CurrentHeading;
+    if (OrientError < 0){ //rotate left
       LHMIX = Min_PBSpeed;
       RHMIX = Max_PBSpeed;
     }
-    else if (headingError > 0){ //rotate right
+    else if (OrientError > 0){ //rotate right
       LHMIX = Max_PBSpeed;
       RHMIX = Min_PBSpeed;
     }
@@ -514,6 +544,7 @@ void MIXRC() {  //pulse in for RC PWM and filters it to output LHMIX,RHMIX
 }
 
 void Spray() {
+  SprayDur = Spray_Sensitivity_Dur * 6920 - 5390560;
   if ((SprayDuration < 1500) && (RelayFlag != 1)) {  //this causes problems when there is playback!!!!
     //turn on relay
     RTime = micros();
@@ -522,7 +553,7 @@ void Spray() {
     ourGPIO.digitalWrite(RelayOutPin, LOW);
   }
 
-  if ((micros() - RTime) > (Spray_Sensitivity_Dur * 6920 - 5390560)) {
+  if ((micros() - RTime) > SprayDur) {
     SprayOutput = false;
     ourGPIO.digitalWrite(RelayOutPin, HIGH);  //turn relay off
   }
@@ -532,42 +563,56 @@ void Spray() {
   if ((micros() - RTime) > 10000000) RTime = micros() + 1100000;  //reset RTIME to keep in in bounds
 }
 
-void recordPath(fs::FS& fil) {
-
+void recordPath(fs::FS& fil, String filename) {
+  File logFile;
   long tim = (millis() - startTime);  //make an int for time
-  File skunkLog = fil.open("/log.txt", FILE_APPEND);
+  
+  if (filename = "skunkLog") logFile = fil.open("/log.txt", FILE_APPEND);       //recorded data
+  if (filename = "skunkPBLog") logFile = fil.open("/logPB.txt", FILE_APPEND);   //playback data
 
-  if (!skunkLog) {
-    Serial.println("Failed to APPEND file for writing");
-  } else {
-
-  }                     // Determine the total length needed for the concatenated strin
+  if (!logFile) Serial.println("Failed to APPEND file for writing");
+  
   calculatePosition();
-  skunkLog.print(tim);  //data[0]
-  skunkLog.print(";");
-  skunkLog.print(LHMIX);  //data[1]
-  skunkLog.print(";");
-  skunkLog.print(RHMIX);  //data[2]
-  skunkLog.print(";");
-  skunkLog.print(xPos);  //data[3]
-  skunkLog.print(";");
-  skunkLog.print(yPos);  //data[4]
-  skunkLog.print(";");
-  skunkLog.print(SprayOutput);  //data[5]
-  skunkLog.print(";");
-  skunkLog.print(anchorDistance1);  //data[6]
-  skunkLog.print(";");
-  skunkLog.print(anchorDistance2);  //data[7]
-  skunkLog.print(";");
-  skunkLog.print(anchorDistance3);  //data[8]
-  skunkLog.print(";");
-  skunkLog.print(bno.orientationZ);  //data[9]
+  logFile.print(tim);                              //data[0] - timestamp
+  logFile.print(";");                          
+  logFile.print(xPos);                             //data[1] - X position of robot
+  logFile.print(";");                  
+  logFile.print(yPos);                             //data[2] - Y position of robot
+  logFile.print(";");              
+  logFile.print(anchorDistance1);                  //data[3] - Anchor 1 Distance
+  logFile.print(";");              
+  logFile.print(anchorDistance2);                  //data[4] - Anchor 2 Distance
+  logFile.print(";");              
+  logFile.print(anchorDistance3);                  //data[5] - Anchor 3 Distance
+  logFile.print(";");              
+  logFile.print(bno.orientationZ);                 //data[6] - Orientation
+  logFile.print(";");              
+  logFile.print(SprayOutput);                      //data[7] - Spray Flag
+  logFile.print(";");
+  if (SprayOutput) logFile.print(SprayDur); //data[8] - if spray Flag is true, output RelayDur length
+  if (!SprayOutput) logFile.print(SprayOutput);       //data[8] - if spray Flag is false, output zero
 
-  Serial.print(String("time = ") + tim + String(" : LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX + String(" : orientationZ = ") + bno.orientationZ);
-  Serial.println(String(" : xPos = ") + xPos + String(" : yPos = ") + yPos + String(" : anch1 = ") + anchorDistance1 + String(" : anch2 = ") + anchorDistance2 + String(" : anch3 = ") + anchorDistance3);
+  if (filename == "skunkPBLog") {
+    logFile.print(";");
+    logFile.print(TimeStamp);                      //data[9] - recorded timestamp into playback data
+    // logFile.print(";");
+    // logFile.print();  
+  }
 
-  skunkLog.println(";"); //end with a ;
-  skunkLog.close();
+  Serial.print(String("time = ") + tim + String(" : xPos = ") + xPos + String(" : yPos = ") + yPos + String(" : orientationZ = ") + bno.orientationZ);
+  Serial.print(String(" : anch1 = ") + anchorDistance1 + String(" : anch2 = ") + anchorDistance2 + String(" : anch3 = ") + anchorDistance3);
+  Serial.print(" : SprayFlag = ");
+  if (SprayOutput){
+    Serial.print("On");
+    Serial.print(String(" : SprayDur = ") + SprayDur);
+  } else {
+    Serial.print("Off");
+    Serial.print(String(" : SprayDur = ") + SprayOutput);
+  };
+
+  Serial.println();
+  logFile.println(";"); //end with a ;
+  logFile.close();
 }
 
 void readFile(fs::FS& fs, const char* path) {
@@ -597,7 +642,12 @@ void readFile(fs::FS& fs, const char* path) {
       memset(value, '\0', sizeof(value));  //clear out array
 
     } else if (newData == '\n') {          //done with line of file
-      while (!MadeitFlag){}
+      while (!MadeitFlag){
+        if (mode == mode_RC){
+          Serial.println("switch to rc, exit playback");
+          return;
+        }
+      }
       //MadeitFlag = false; //not sure if setting false here or in playback is right 
       i = 0;
       lineDone = true;
@@ -666,32 +716,37 @@ void checkMode() {
 
   if ((LHFilter.get() < DANGER_DIST) || (RHFilter.get() < DANGER_DIST) || (CEFilter.get() < DANGER_DIST)) {  //CHECKING FOR DANGER CLOSE ULTRASONIC
     DangerFlag = true;
-    AllStop_FXN(); //change to pause function so if something moves out of way it can resume/ 
+    mode = mode_PAUSE;
+    Pause(); 
     Serial.println("DANGER CLOSE");
+  } 
 
-  } else if ((Mode_dur < 1800) && (Mode_dur > 1200))  //mode record is turned on
+  else if ((Mode_dur < 1800) && (Mode_dur > 1200))  //mode RC is turned on
   {
 #ifndef RC
     mode = mode_RC;
     mode_Flag = 0;
 #endif
+
     //mode_Flag = 1;
-  } else if (Mode_dur > 1800)  // mode RC is turned on
+  } else if (Mode_dur > 1800)  // mode Record is turned on
   {
 #ifndef RC
-    //set LED to RC
     mode = mode_RECORD;
 #endif
+
   } else if ((Mode_dur < 1200) && (mode != mode_All_STOP))  // mode playback is turned on and not coming from all stop
   {
 #ifndef RC
     mode = mode_PLAYBACK;
     mode_Flag = 0;
 #endif
+
   } else {
 #ifndef RC
     mode = mode_All_STOP;
 #endif
+
   }  // put in 1-19-24 to get rid of residual turning after all stop
 }
 
@@ -713,10 +768,13 @@ void OLED_display() {
       break;
     case mode_RC:
       display.print("RC = ");
-      display.print(sqrt(errorTotal1) + sqrt(errorTotal2));
+      display.print(sqrt(errTot1) + sqrt(errTot2));
       break;
     case mode_PLAYBACK:
       display.print("PLAYBACK");
+      break;
+    case mode_PAUSE:
+      display.print("PAUSE");
       break;
     case mode_All_STOP:
       display.print("ALL STOP");
@@ -741,9 +799,22 @@ void Output() {
 void AllStop_FXN() {
   Lights(0,0,0,0,1,0);
   mode = mode_All_STOP;
-  rightSideServo.write(90);   // motors stop
-  leftSideServo.write(90);    // motors stop
+  rightSideServo.write(Mid_Thrust);   // motors stop
+  leftSideServo.write(Mid_Thrust);    // motors stop
   ourGPIO.digitalWrite(RelayOutPin, HIGH);
+}
+
+void Pause(){
+  Lights(0,0,0,1,0,1);
+
+  rightSideServo.write(Mid_Thrust);   // motors stop
+  leftSideServo.write(Mid_Thrust);    // motors stop
+  ourGPIO.digitalWrite(RelayOutPin, HIGH);
+}
+void Resume(){
+  if ((ResumeDur < 1500) && (DangerFlag == true)) {  
+    DangerFlag = false;
+  }
 }
 
 void Lights(bool White, bool Blue, bool Green, bool Orange, bool Red, bool Pulse) { // lights function
