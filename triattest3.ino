@@ -637,15 +637,18 @@ void readFile(fs::FS& fs, const char* path) {
   }
   String line = file.readStringUntil('\n'); //clears first line
   file.seek(currentFilePosition);
+  
   bool lineDone = false;
   int i = 0;
   char value[9];
+  int valueIndex = 0;
   memset(value, '\0', sizeof(value));  //clear out array
 
   if (!file.available()) {
     Serial.println("file unavailable");
     AllStop_FXN();
     EndOfFile = true;
+    return;
   }
   while (file.available() && !lineDone) {
     char newData = file.read();
@@ -653,12 +656,13 @@ void readFile(fs::FS& fs, const char* path) {
       data[i] = atof(value);
       i++;
       memset(value, '\0', sizeof(value));  //clear out array
+      valueIndex = 0;
 
     } else if (newData == '\n') {          //done with line of file
       while (!MadeitFlag || !mode_RC){
         Serial.println("waiting");
-        if (MadeitFlag) {
-          continue; //return; or break; or continue; ? not sure
+        if (MadeitFlag || mode_RC) {
+          break; 
         }
       }
       //MadeitFlag = false; //not sure if setting false here or in playback is right 
@@ -667,8 +671,10 @@ void readFile(fs::FS& fs, const char* path) {
       currentFilePosition = file.position();
       
     } else {  //add new character to value array
-      int length = strlen(value);
-      value[length] = newData;
+      if (valueIndex < sizeof(value) - 1) {
+        value[valueIndex] = newData;
+        valeIndex++
+      }
     }
   }
 }
