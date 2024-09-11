@@ -136,17 +136,17 @@ volatile unsigned long pulseInTimeBegin_SpraySens = micros();
 volatile unsigned long pulseInTimeBegin_SteeringSens = micros();  //Interrupt timers
 
 const byte numChars = 32;
-const int numData = 9;
+const int numData = 10;
 char receivedChars[numChars];
 char tempChars[numChars], messageFromPC[numChars] = { 0 }, logMessage[numChars];
 int integerFromPC = 0, anchor1 = 1780, anchor2 = 1781, anchor3 = 1782;
-float floatFromPC = 0.0, anchorDistance1, anchorDistance2, anchorDistance3;
+float floatFromPC = 0.0, anchDist1, anchDist2, anchDist3;
 float xAnchors[Number_of_Anchors] = {0, 2.5, 0};  // X coordinates of anchors
 float yAnchors[Number_of_Anchors] = {0, 8.5, 1};  // Y coordinates of anchors
 float zAnchors[Number_of_Anchors] = {1.5, 1.5, 1};  // Z coordinates of anchors
 double xPos, yPos, RecX, RecY;
-float posTol = 1.0, headTol = 1.0;
-bool newData = false, mode_Flag = false;
+float posTol = 1.0, headTol = 5.0; //playback tolerances
+bool newData = false, mode_Flag = false, lineDone = false;
 int incomingByte = 0;  // for incoming serial data
 float LHMIX, RHMIX;
 float Sc_MaxSteer, Sc_MinSteer, Sc_MaxThrust, Sc_MinThrust, Max_PBSpeed, Min_PBSpeed, SpeedCap; //scaled max n mins
@@ -161,7 +161,6 @@ long Steering_Sensitivity_Dur = 1500;
 long Mode_dur = 1000, ResumeDur = 1000;
 int startTime;
 int startTime_Playback;
-int linecounter = 0;
 long currentFilePosition = 0;
 long RTime, dt;
 int ultraSonic[] = { 0x22, 0x23 };  //used to check if ultra was connected or not
@@ -173,7 +172,7 @@ bool SprayOutput = false;
 bool recordFirstTime = false;
 bool MoveFlag = false, RotateFlag = false;
 float data[numData];  //fitness is the root mean squared of how well the robot followed the path.
-float errTot = 0, errTot1 = 0, errTot2 = 0, errTot3 = 0;
+float errTot = 0, errTotDev = 0;
 float errAnch1 = 0, errAnch2 = 0, errAnch3 = 0;
 float K_total, K_heading, K_location = 0.1;
 float CurrentHeading = 0, OrientError = 0;
@@ -311,46 +310,41 @@ void loop() {
     calculatePosition(); // get current position
     double prevXpos = xPos; // set as previous x position
     double prevYpos = yPos; // set as previous y position
-    startTime_Playback = millis();
-    Serial.println(String("startTime = ") + startTime_Playback);
+    startTime_Playback = millis();                                   // i only want to do this once
+    //Serial.println(String("startTime = ") + startTime_Playback);
+
     if (mode != mode_All_STOP) {
       readFile(SD, "/log.txt");                                                  // checks times and read next file line to get new instructions
       TimeStamp = data[0];
-      // Serial.print(String("RecTime Stamp = ") + String(float(TimeStamp/1000.0), 2));
-      Serial.print(String("RecTime Stamp #") + linecounter + String(" = ") + String(float(TimeStamp/1000.0), 2));
       RecX = data[1]; //store x position to head to
       RecY = data[2]; //store y position to head to
-      errAnch1 = (data[3] - anchorDistance1) * (data[3] - anchorDistance1);
-      errAnch2 = (data[4] - anchorDistance2) * (data[4] - anchorDistance2);
-      errAnch3 = (data[5] - anchorDistance3) * (data[5] - anchorDistance3);
+      errAnch1 = (data[3] - anchDist1) * (data[3] - anchDist1);
+      errAnch2 = (data[4] - anchDist2) * (data[4] - anchDist2);
+      errAnch3 = (data[5] - anchDist3) * (data[5] - anchDist3);
       RecOrient = data[6];
       SprayOutput = data[7];                                                     // setting spray trigger to what came in from playback file
       SprayDur = data[8];
 
-      errTot1 = errTot1 + errAnch1;
-      errTot2 = errTot2 + errAnch2;
-      errTot3 = errTot3 + errAnch3;
-      errTot = errTot + errAnch1 + errAnch2 + errAnch3;
-
-      Serial.print(String("s : WhereIam (x,y) = (") + prevXpos + String(",") + prevYpos + String(")m"));
-      Serial.print(String(" : WhereIgo (x,y) = (") + RecX + String(",") + RecY + String(")m"));
-
-      bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
-
+      errTotDev = errAnch1 + errAnch2 + errAnch1; // error at each timestamp
+      errTot = errTot + errAnch1 + errAnch2 + errAnch3; // total error
+      while (!MadeitFlag || mode != mode_RC){
+        bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
+        if (MadeitFlag || mode == mode_RC) {
+          break; 
+        }
+      }
+      recordPath(SD, "skunkPBLog"); //after it gets to pos, record data
       prevXpos = RecX;
       prevYpos = RecY;
-      linecounter++;
       MadeitFlag = false;
 
-      // Serial.print(String(" : errAnch1 = ") + errAnch1 + String(" : errAnch2 = ") + errAnch2);
-      Serial.println();
       if (DangerFlag) {
         //records where it is in file
         //then when resumed it can return to file
       }
     
       if (EndOfFile) {
-        Serial.println(String("!!End of file!! : Total Error = ") + errTot + String(" : Playback Time = ") + (millis()-startTime_Playback) + String("ms"));
+        Serial.println(String("!!End of file!! : Total Error = ") + errTot + String(" : Playback Time = ") + (millis()-startTime_Playback) + String("ms"));// playback time resests every loop
         AllStop_FXN();
         currentFilePosition = 0;
       }
@@ -364,9 +358,6 @@ void loop() {
     portEXIT_CRITICAL(&timerMux);
     if (mode == mode_RECORD) {
       recordPath(SD, "skunkLog");
-    }
-    if (mode == mode_PLAYBACK) {
-      recordPath(SD, "skunkPBLog");
     }
     totalInterruptCounter++;  //counting total interrupt
   }
@@ -434,9 +425,9 @@ void parseData() {                      // split the data into its parts
   integerFromPC = atoi(strtokIndx);  // convert this part (ascii code) to an integer
   strtokIndx = strtok(NULL, ":");
   floatFromPC = atof(strtokIndx);  // convert this part to a float
-  if (integerFromPC == anchor1) anchorDistance1 = floatFromPC;
-  if (integerFromPC == anchor2) anchorDistance2 = floatFromPC;
-  //if (integerFromPC == anchor3) anchorDistance3 = floatFromPC;
+  if (integerFromPC == anchor1) anchDist1 = floatFromPC;
+  if (integerFromPC == anchor2) anchDist2 = floatFromPC;
+  //if (integerFromPC == anchor3) anchDist3 = floatFromPC;
   calculatePosition();
 }
 
@@ -445,12 +436,12 @@ void calculatePosition() {
   double A = 2 * (xAnchors[1] - xAnchors[0]);
   double B = 2 * (yAnchors[1] - yAnchors[0]);
   double C = 2 * (zAnchors[1] - zAnchors[0]);
-  double D = pow(anchorDistance1, 2) - pow(anchorDistance2, 2) - pow(xAnchors[0], 2) + pow(xAnchors[1], 2) - pow(yAnchors[0], 2) + pow(yAnchors[1], 2) - pow(zAnchors[0], 2) + pow(zAnchors[1], 2);
+  double D = pow(anchDist1, 2) - pow(anchDist2, 2) - pow(xAnchors[0], 2) + pow(xAnchors[1], 2) - pow(yAnchors[0], 2) + pow(yAnchors[1], 2) - pow(zAnchors[0], 2) + pow(zAnchors[1], 2);
 
   double E = 2 * (xAnchors[2] - xAnchors[0]);
   double F = 2 * (yAnchors[2] - yAnchors[0]);
   double G = 2 * (zAnchors[2] - zAnchors[0]);
-  double H = pow(anchorDistance1, 2) - pow(anchorDistance3, 2) - pow(xAnchors[0], 2) + pow(xAnchors[2], 2) - pow(yAnchors[0], 2) + pow(yAnchors[2], 2) - pow(zAnchors[0], 2) + pow(zAnchors[2], 2);
+  double H = pow(anchDist1, 2) - pow(anchDist3, 2) - pow(xAnchors[0], 2) + pow(xAnchors[2], 2) - pow(yAnchors[0], 2) + pow(yAnchors[2], 2) - pow(zAnchors[0], 2) + pow(zAnchors[2], 2);
 
   xPos = (D * F - H * B) / (A * F - E * B);
   yPos = (D * E - A * H) / (B * E - A * F);
@@ -461,23 +452,27 @@ void bresenhamLine(float x1, float y1, float x2, float y2) {
   MadeitFlag = false;
   float dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
   float dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
-  Serial.print(String(" : dx = ") + dx + String(" : dy = ") + dy);
+  //Serial.print(String(" : dx = ") + dx + String(" : dy = ") + dy);
   float err = dx + dy, e2;  // error value e_xy
 
-  if (MadeitFlag == false && mode == mode_PLAYBACK && mode != mode_All_STOP) {
-    moveRobotTo(dx, dy, x2, y2);  // Move the robot to the next point (x2, y2)
+  if (MadeitFlag == false && mode == mode_PLAYBACK) {//might need to make a while loop to keep moving until it actually gets to pos
+    moveRobotTo(x2, y2);  // Move the robot to the next point (x2, y2)
+
     if (abs(dx) <= posTol && abs(dy) <= posTol){
+
       if (MoveFlag && abs(headingError) < headTol){
         MadeitFlag = true;
         MoveFlag = false;
-        Serial.print(" : !made it - moved! ");
+        Serial.println(" : !made it - moved! ");
       }
+
       if (RotateFlag && abs(OrientError) < headTol){
         MadeitFlag = true;
         RotateFlag = false;
-        Serial.print(" : !made it - rotated! ");
+        Serial.println(" : !made it - rotated! ");
       }
     }
+
     e2 = 2 * err;
     if (e2 >= dy) { err += dy; x2 += sx; }
     if (e2 <= dx) { err += dx; y2 += sy; }
@@ -495,16 +490,23 @@ float calculateHeadingToTarget(int x, int y) {
   return atan2(deltaY, deltaX) * (180.0 / PI);  // Convert to degrees
 }
 
-void moveRobotTo(float dx, float dy, float x2, float y2) {
+void moveRobotTo(float x2, float y2) {
   LHMIX = Max_PBSpeed;  //setting max playback speed
   RHMIX = Max_PBSpeed;  //setting max playback speed
-  //add
+  calculatePosition();
+  double currentX = xPos;
+  double currentY = yPos;
+  float dx = abs(x2 - currentX), sx = currentX < x2 ? 1 : -1;
+  float dy = -abs(y2 - currentY), sy = currentY < y2 ? 1 : -1;
+  float err = dx + dy, e2;  // error value e_xy
+
   if (dx > 1 || dy > 1) {  //while moving, adjust heading
     CurrentHeading = bno.orientationZ;
     targetHeading = calculateHeadingToTarget(x2, y2);  // Calculate desired heading to the target point
     float headingError = targetHeading - CurrentHeading;   // Current heading error  
     MoveFlag = true;
-    Serial.print(String(" : targetHeading = ") + targetHeading + String(" : CurrentHeading = ") + CurrentHeading + String(" : headingError = ") + headingError);
+    //Serial.print(String(" : targetHeading = ") + targetHeading + String(" : CurrentHeading = ") + CurrentHeading + String(" : headingError = ") + headingError);
+
     if (headingError < 0) {
       LHMIX = LHMIX - (headingError * K_heading);  //turn left a bit
     } else if (headingError > 0) {
@@ -512,11 +514,12 @@ void moveRobotTo(float dx, float dy, float x2, float y2) {
     }
   }
 
-  else if (dx < 1 || dy < 1) {  //at position, just needs to rotate
+  if (dx < 1 && dy < 1) {  //at position, just needs to rotate
     RotateFlag = true;
     CurrentHeading = bno.orientationZ;
     OrientError = RecOrient - CurrentHeading;
-    Serial.print(String(" : RecOrient = ") + RecOrient + String(" : CurrentHeading = ") + CurrentHeading + String(" : OrientError = ") + OrientError);
+    //Serial.print(String(" : RecOrient = ") + RecOrient + String(" : CurrentHeading = ") + CurrentHeading + String(" : OrientError = ") + OrientError);
+
     if (OrientError < 0) {  //rotate left
       LHMIX = Min_PBSpeed;
       RHMIX = Max_PBSpeed;
@@ -525,7 +528,10 @@ void moveRobotTo(float dx, float dy, float x2, float y2) {
       RHMIX = Min_PBSpeed;
     }
   }
-  Serial.print(String(" : LHMIX = ") + LHMIX + String(" : RHMIX = ") + RHMIX);
+  e2 = 2 * err;
+  if (e2 >= dy) { err += dy; x2 += sx; }
+  if (e2 <= dx) { err += dx; y2 += sy; }
+  if (mode == mode_RC) {break;}
 }
 
 void MIXRC() {  //pulse in for RC PWM and filters it to output LHMIX,RHMIX
@@ -581,50 +587,82 @@ void recordPath(fs::FS& fil, String filename) {
   if (!logFile) Serial.println("Failed to APPEND file for writing");
   
   calculatePosition();
-  logFile.print(tim);                              //data[0] - timestamp
-  logFile.print(";");                          
-  logFile.print(xPos);                             //data[1] - X position of robot
-  logFile.print(";");                  
-  logFile.print(yPos);                             //data[2] - Y position of robot
-  logFile.print(";");              
-  logFile.print(anchorDistance1);                  //data[3] - Anchor 1 Distance
-  logFile.print(";");              
-  logFile.print(anchorDistance2);                  //data[4] - Anchor 2 Distance
-  logFile.print(";");              
-  logFile.print(anchorDistance3);                  //data[5] - Anchor 3 Distance
-  logFile.print(";");              
-  logFile.print(bno.orientationZ);                 //data[6] - Orientation
-  logFile.print(";");              
-  logFile.print(SprayOutput);                      //data[7] - Spray Flag
-  logFile.print(";");
-  if (SprayOutput) logFile.print(SprayDur);        //data[8] - if spray Flag is true, output RelayDur length
-  if (!SprayOutput) logFile.print(SprayOutput);    //data[8] - if spray Flag is false, output zero
-
-  if (filename == "skunkPBLog") { //additional playback data
-    logFile.print(";");
-    logFile.print(TimeStamp);                      //data[9] - recorded timestamp into playback data used to compare with recorded timestamps
-    Serial.print(String("PBTime Stamp = ") + String(float(tim/1000.0), 2) + String("s : "));
-    // logFile.print(";");
-    // logFile.print(TimeStamp);  
-    Serial.print(String("RecTime Stamp = ") + String(float(TimeStamp/1000.0), 2) + String("s : "));
-  }
-  if (filename == "skunkLog") {
-    Serial.print(String("Time Stamp = ") + String(float(tim/1000.0), 2)); //recording time
-  }
-  Serial.print(String("s : WhereIam (x,y) = (") + xPos + String(",") + yPos + String(")m") + String(" : orientationZ = ") + bno.orientationZ); //position data
-  Serial.print(String(" : anch1 = ") + anchorDistance1 + String("m : anch2 = ") + anchorDistance2 + String("m : anch3 = ") + anchorDistance3); //anch distance data
-  Serial.print("m : SprayFlag = "); //spray out put on/off
   
-  if (SprayOutput){ 
-    Serial.print("On");
-    Serial.print(String(" : SprayDur = ") + String(float(SprayDur/1000000.0), 2)); //spray duration in seconds
-  } else {
-    Serial.print("Off");
-    Serial.print(String(" : SprayDur = ") + SprayOutput); // spray duration = 0 bc off
-  };
+  if (filename == "skunkLog") {
+    logFile.print(tim);                              //data[0] - timestamp
+    logFile.print(";");                          
+    logFile.print(xPos);                             //data[1] - X position of robot
+    logFile.print(";");                  
+    logFile.print(yPos);                             //data[2] - Y position of robot
+    logFile.print(";");              
+    logFile.print(anchDist1);                        //data[3] - Anchor 1 Distance
+    logFile.print(";");              
+    logFile.print(anchDist2);                        //data[4] - Anchor 2 Distance
+    logFile.print(";");              
+    logFile.print(anchDist3);                        //data[5] - Anchor 3 Distance
+    logFile.print(";");              
+    logFile.print(bno.orientationZ);                 //data[6] - Orientation
+    logFile.print(";");              
+    logFile.print(SprayOutput);                      //data[7] - Spray Flag
+    logFile.print(";");
+    if (SprayOutput) logFile.print(SprayDur);        //data[8] - if spray Flag is true, output RelayDur length
+    if (!SprayOutput) logFile.print(SprayOutput);    //data[8] - if spray Flag is false, output zero
 
+    Serial.print(String("Time Stamp = ") + String(float(tim/1000.0), 2) + String("s"));       //recording time
+    Serial.print(String(" : Position (x,y) = (") + xPos + String(",") + yPos + String(")m")); //position data
+    Serial.print(String(" : Orient = ") + bno.orientationZ);                            //orientation data
+    Serial.print(String(" : Anchor Dist's (1,2,3) = (") + anchDist1 + String(", ") + anchDist2 + String(", ") + anchDist3 + String(")m")); //anch Distance data
+    Serial.print(" : SprayFlag = "); //spray out put on/off
+    if (SprayOutput){ 
+      Serial.print("On");
+      Serial.print(String(" : SprayDur = ") + String(float(SprayDur/1000000.0), 2)); //spray duration in seconds
+    } else {
+      Serial.print("Off");
+      Serial.print(String(" : SprayDur = ") + SprayOutput); // spray duration = 0 bc off
+    }
+  }
+
+  if (filename == "skunkPBLog") {
+    logFile.print(tim);                              //data[0] - timestamp
+    logFile.print(";");                          
+    logFile.print(xPos);                             //data[1] - X position of robot
+    logFile.print(";");                  
+    logFile.print(yPos);                             //data[2] - Y position of robot
+    logFile.print(";");              
+    logFile.print(anchDist1);                        //data[3] - Anchor 1 Distance
+    logFile.print(";");              
+    logFile.print(anchDist2);                        //data[4] - Anchor 2 Distance
+    logFile.print(";");              
+    logFile.print(anchDist3);                        //data[5] - Anchor 3 Distance
+    logFile.print(";");              
+    logFile.print(bno.orientationZ);                 //data[6] - Orientation
+    logFile.print(";");              
+    logFile.print(SprayOutput);                      //data[7] - Spray Flag
+    logFile.print(";");
+    if (SprayOutput) logFile.print(SprayDur);        //data[8] - if spray Flag is true, output RelayDur length
+    if (!SprayOutput) logFile.print(SprayOutput);    //data[8] - if spray Flag is false, output zero
+    logFile.print(";");
+    logFile.print(TimeStamp);                        //data[9] - recorded timestamp into playback data used to compare with recorded timestamps
+    logFile.print(";");
+    logFile.print(errTotDev);                        //data[10] - position error
+  
+    Serial.print(String("PBTime Stamp = ") + String(float(tim/1000.0), 2) + String("s"));
+    Serial.print(String(" : RecTime Stamp = ") + String(float(TimeStamp/1000.0), 2) + String("s"));
+    Serial.print(String(" : Position (x,y) = (") + xPos + String(",") + yPos + String(")m")); //position data
+    Serial.print(String(" : Orient = ") + bno.orientationZ);                            //orientation data
+    Serial.print(String(" : Anchor Dist's (1,2,3) = (") + anchDist1 + String(", ") + anchDist2 + String(", ") + anchDist3 + String(")m")); //anch Distance data
+    Serial.print(String(" : Error = ") + errTotDev);
+    Serial.print(" : SprayFlag = "); //spray out put on/off
+    if (SprayOutput){ 
+      Serial.print("On");
+      Serial.print(String(" : SprayDur = ") + String(float(SprayDur/1000000.0), 2)); //spray duration in seconds
+    } else {
+      Serial.print("Off");
+      Serial.print(String(" : SprayDur = ") + SprayOutput); // spray duration = 0 bc off
+    }
+  }
   Serial.println("s");
-  logFile.println(";"); //end with a ;
+  logFile.println();        //end with a ;
   logFile.close();
 }
 
@@ -638,7 +676,7 @@ void readFile(fs::FS& fs, const char* path) {
   String line = file.readStringUntil('\n'); //clears first line
   file.seek(currentFilePosition);
   
-  bool lineDone = false;
+  lineDone = false;
   int i = 0;
   char value[9];
   int valueIndex = 0;
@@ -659,13 +697,12 @@ void readFile(fs::FS& fs, const char* path) {
       valueIndex = 0;
 
     } else if (newData == '\n') {          //done with line of file
-      while (!MadeitFlag || !mode_RC){
-        Serial.println("waiting");
-        if (MadeitFlag || mode_RC) {
+      while (!MadeitFlag || mode != mode_RC){
+        //Serial.println("waiting to read");
+        if (MadeitFlag || mode == mode_RC) {
           break; 
         }
       }
-      //MadeitFlag = false; //not sure if setting false here or in playback is right 
       i = 0;
       lineDone = true;
       currentFilePosition = file.position();
@@ -673,7 +710,7 @@ void readFile(fs::FS& fs, const char* path) {
     } else {  //add new character to value array
       if (valueIndex < sizeof(value) - 1) {
         value[valueIndex] = newData;
-        valeIndex++
+        valueIndex++;
       }
     }
   }
@@ -753,7 +790,7 @@ void OLED_display() {
       break;
     case mode_RC:
       display.print("RC = ");
-      display.print(sqrt(errTot1) + sqrt(errTot2));
+      //display.print(sqrt(errDev1) + sqrt(errDev2));
       break;
     case mode_PLAYBACK:
       display.print("PLAYBACK");
