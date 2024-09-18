@@ -327,26 +327,23 @@ void loop() {
 
       errTotDev = errAnch1 + errAnch2 + errAnch1; // error at each timestamp
       errTot = errTot + errAnch1 + errAnch2 + errAnch3; // total error
-      while (!MadeitFlag || mode != mode_RC){
-        bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
-        if (MadeitFlag || mode == mode_RC) {
-          break; 
-        }
-      }
-      recordPath(SD, "skunkPBLog"); //after it gets to pos, record data
-      prevXpos = RecX;
-      prevYpos = RecY;
-      MadeitFlag = false;
+      bresenhamLine(prevXpos, prevYpos, RecX, RecY); // apply bresenhams line algorithm
+      if (MadeitFlag){
+        recordPath(SD, "skunkPBLog"); //after it gets to pos, record data
+        prevXpos = RecX;
+        prevYpos = RecY;
+        MadeitFlag = false;
 
-      if (DangerFlag) {
-        //records where it is in file
-        //then when resumed it can return to file
-      }
+        if (DangerFlag) {
+          //records where it is in file
+          //then when resumed it can return to file
+        }
     
-      if (EndOfFile) {
-        Serial.println(String("!!End of file!! : Total Error = ") + errTot + String(" : Playback Time = ") + (millis()-startTime_Playback) + String("ms"));// playback time resests every loop
-        AllStop_FXN();
-        currentFilePosition = 0;
+        if (EndOfFile) {
+          Serial.println(String("!!End of file!! : Total Error = ") + errTot + String(" : Playback Time = ") + (millis()-startTime_Playback) + String("ms"));// playback time resests every loop
+          AllStop_FXN();
+          currentFilePosition = 0;
+        }
       }
     }
   }
@@ -697,16 +694,11 @@ void readFile(fs::FS& fs, const char* path) {
       valueIndex = 0;
 
     } else if (newData == '\n') {          //done with line of file
-      while (!MadeitFlag || mode != mode_RC){
-        //Serial.println("waiting to read");
-        if (MadeitFlag || mode == mode_RC) {
-          break; 
-        }
+      if (MadeitFlag || mode == mode_RC) {
+        i = 0;
+        lineDone = true;
+        currentFilePosition = file.position();
       }
-      i = 0;
-      lineDone = true;
-      currentFilePosition = file.position();
-      
     } else {  //add new character to value array
       if (valueIndex < sizeof(value) - 1) {
         value[valueIndex] = newData;
